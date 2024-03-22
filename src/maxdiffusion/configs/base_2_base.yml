@@ -41,9 +41,9 @@ flash_block_sizes: {}
 #   block_q_dq: 64
 #   block_kv_dq: 64
 
-# If unet_finetune, then training will start from the loaded unet_weights
-# else weights will be randomly initialized to train the unet from scratch.
-unet_finetune: False
+# If train_new_unet, unet weights will be randomly initialized to train the unet from scratch
+# else they will be loaded from pretrained_model_name_or_path
+train_new_unet: False
 
 # Output directory
 # Create a GCS bucket, e.g. my-maxtext-outputs and set this to "gs://my-maxtext-outputs/"

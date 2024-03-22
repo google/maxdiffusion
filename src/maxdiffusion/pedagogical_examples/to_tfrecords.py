@@ -20,11 +20,10 @@ Example file of how to prepare tfrecords with latents and hidden_states preproce
 2. Mount gcs bucket using gcs fuse.
 3. Create 2 directories inside gcs bucket to store the extracted files and created tfrecords.
 3. Run this file:
-
 python src/maxdiffusion/pedagogical_examples/to_tfrecords.py \
   src/maxdiffusion/configs/base_2_base.yml \
   attention=dot_product \
-  data_files_pattern=/home/jfacevedo/gcsfuse/laion400m/raw_data/webdataset-moments-filtered/*.tar \
+  data_files_pattern=/home/jfacevedo/gcsfuse/laion400m/raw_data/filtered_images/*.tar \
   extracted_files_dir=/tmp/extracted \
   tfrecords_dir=/home/jfacevedo/gcsfuse/laion400m/processed/laion400m_tfrec \
   run_name=test \
@@ -38,11 +37,13 @@ from absl import app
 from typing import Sequence
 
 import tensorflow as tf
+from torchvision import transforms
 import tarfile
 import tensorflow_datasets as tfds
 import numpy as np
 import jax
 import jax.numpy as jnp
+from PIL import Image
 
 from maxdiffusion import (
   FlaxStableDiffusionPipeline,
@@ -50,10 +51,17 @@ from maxdiffusion import (
   max_utils
 )
 
-from maxdiffusion.models.vae_flax import FlaxDiagonalGaussianDistribution
-
 dl_manager = tfds.download.DownloadManager(download_dir="/tmp")
 tmp_dataset = "dataset"
+
+TRANSFORMS = transforms.Compose(
+  [
+    transforms.ToTensor(),
+    transforms.Resize(size=512, interpolation=transforms.InterpolationMode.BICUBIC),
+    transforms.CenterCrop(size=512),
+    transforms.Normalize([0.5], [0.5])
+  ]
+)
 
 def delete_files(path):
   files = glob.glob(path+"/*")
@@ -104,8 +112,7 @@ def create_example(latent, hidden_states):
     example = tf.train.Example(features=tf.train.Features(feature=feature))
     return example.SerializeToString()
 
-def generate_dataset(config, pipeline, p_encode, vae):
-
+def generate_dataset(config, pipeline, p_encode, p_vae_apply):
   tfrecords_dir=config.tfrecords_dir
   extracted_files_dir=config.extracted_files_dir
 
@@ -118,18 +125,18 @@ def generate_dataset(config, pipeline, p_encode, vae):
   global_record_count = 0
   writer = tf.io.TFRecordWriter(
     tfrecords_dir + "/file_%.2i-%i.tfrec" % (tf_rec_num, (global_record_count + no_records_per_shard)))
-  rng = jax.random.PRNGKey(0)
+  rng = jax.random.key(0)
   for filename in filenames:
     tmp_file = dl_manager.download(filename)
     file = tarfile.open(tmp_file)
     file.extractall(extracted_files_dir, filter='data')
-    extracted_filenames = tf.io.gfile.glob(f"{extracted_files_dir}/*.npy")
+    extracted_filenames = tf.io.gfile.glob(f"{extracted_files_dir}/*.jpg")
     shard_record_count = 0
-    for moments_file in extracted_filenames:
-      moment = np.load(moments_file)
-      latent = moments_to_latents(moment, rng, vae)
+    for image_file in extracted_filenames:
+      img = Image.open(image_file).convert("RGB")
+      latent = img_to_latents(img, p_vae_apply, rng)
       rng, _ = jax.random.split(rng)
-      caption_file = moments_file.split(".")[0] + ".txt"
+      caption_file = image_file.split(".")[0] + ".txt"
       with open(caption_file, "r") as f:
         caption = f.read()
       hidden_states = np.array(tokenize_captions(caption, pipeline, p_encode))
@@ -153,13 +160,21 @@ def encode(input_ids, text_encoder, text_encoder_params):
     train=False
   )[0]
 
-def moments_to_latents(moments, rng, vae):
-  moments = jnp.transpose(moments, (0, 2, 3, 1))
-  posterior = FlaxDiagonalGaussianDistribution(moments)
-  latents = posterior.sample(rng)
-  # (NHWC) -> (NCHW)
+def vae_apply(images, sample_rng, vae, vae_params):
+  vae_outputs = vae.apply(
+    {"params" : vae_params},
+    images,deterministic=True,
+    method=vae.encode
+  )
+  latents = vae_outputs.latent_dist.sample(sample_rng)
   latents = jnp.transpose(latents, (0, 3, 1, 2))
   latents = latents * vae.config.scaling_factor
+  return latents
+   
+def img_to_latents(img, p_vae_apply, sample_rng):
+  img = TRANSFORMS(img)
+  img = np.expand_dims(np.array(img), axis=0)
+  latents = p_vae_apply(img, sample_rng)
   latents = jnp.squeeze(latents)
   return latents
 
@@ -174,13 +189,13 @@ def run(config):
     mesh=None
   )
 
-  # The dataset contains moments (look at vae_flax.py ln. 917) in B,C,S,S
-  # and they are transposed to B,S,S,C then fully encoded as latents.
   p_encode = jax.jit(functools.partial(encode,
                                            text_encoder=pipeline.text_encoder,
                                            text_encoder_params=params["text_encoder"]))
 
-  generate_dataset(config, pipeline, p_encode, pipeline.vae)
+  p_vae_apply = jax.jit(functools.partial(vae_apply, vae=pipeline.vae, vae_params=params["vae"]))
+
+  generate_dataset(config, pipeline, p_encode, p_vae_apply)
 
 def main(argv: Sequence[str]) -> None:
    pyconfig.initialize(argv)
