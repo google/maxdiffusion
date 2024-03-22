@@ -168,8 +168,10 @@ def run(config):
         vae_decode_p = functools.partial(vae_decode, pipeline=pipeline)
 
         with mesh, nn_partitioning.axis_rules(config.logical_axis_rules):
-            latents, _, _ = jax.lax.fori_loop(0, config.num_inference_steps,
-                                            loop_body_p, (latents, scheduler_state, unet_state))
+            val = (latents, scheduler_state, unet_state)
+            for i in range(0, config.num_inference_steps):
+              val = loop_body_p(i, val)
+            latents, _, _ = val
             image = vae_decode_p(latents, vae_state)
             return image
 
