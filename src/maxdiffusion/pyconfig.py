@@ -112,6 +112,9 @@ class _HyperParameters():
     raw_keys["logical_axis_rules"] = _lists_to_tuples(raw_keys["logical_axis_rules"])
     raw_keys["data_sharding"] = _lists_to_tuples(raw_keys["data_sharding"])
 
+    if raw_keys["learning_rate_schedule_steps"]==-1:
+      raw_keys["learning_rate_schedule_steps"] = raw_keys["max_train_steps"]
+
 def get_num_target_devices(raw_keys):
   return len(jax.devices())
 

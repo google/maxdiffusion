@@ -20,3 +20,4 @@ pytest
 tensorflow==2.15.0
 tensorflow-datasets
 ruff>=0.1.5<=0.2
+git+https://github.com/mlperf/logging.git

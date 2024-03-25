@@ -34,7 +34,7 @@ class Generate(unittest.TestCase):
   def test_sd_2_base_config(self):
     img_url = os.path.join(THIS_DIR,'images','test_2_base.png')
     base_image = np.array(Image.open(img_url)).astype(np.uint8)
-    pyconfig.initialize([None,os.path.join(THIS_DIR,'..','configs','base_2_base.yml')])
+    pyconfig.initialize([None,os.path.join(THIS_DIR,'..','configs','base_2_base.yml'), "seed=47"])
     images = generate_run(pyconfig.config)
     test_image = np.array(images[0]).astype(np.uint8)
     ssim_compare = ssim(base_image, test_image,

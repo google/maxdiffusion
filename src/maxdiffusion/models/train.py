@@ -34,7 +34,8 @@ from maxdiffusion import (
     FlaxAutoencoderKL,
     max_logging,
     max_utils,
-    pyconfig
+    pyconfig,
+    mllog_utils,
 )
 
 from transformers import FlaxCLIPTextModel
@@ -251,19 +252,14 @@ def train(config):
     if config.scale_lr:
         config.learning_rate = config.learning_rate * total_train_batch_size
 
-    constant_scheduler = optax.constant_schedule(config.learning_rate)
+    learning_rate_scheduler = max_utils.create_learning_rate_schedule(config)
 
-    adamw = optax.adamw(
-        learning_rate=constant_scheduler,
+    tx = optax.adamw(
+        learning_rate=learning_rate_scheduler,
         b1=config.adam_b1,
         b2=config.adam_b2,
         eps=config.adam_eps,
         weight_decay=config.adam_weight_decay,
-    )
-
-    tx = optax.chain(
-        optax.clip_by_global_norm(config.max_grad_norm),
-       adamw,
     )
 
     (unet_state,
@@ -397,21 +393,25 @@ def train(config):
         max_logging.log(f"  Total train batch size (w. parallel & distributed) = {total_train_batch_size}")
         max_logging.log(f"  Total optimization steps = {config.max_train_steps}")
 
-    global_step = 0
-
     last_step_completion = datetime.datetime.now()
 
     local_metrics_file = open(config.metrics_file, 'a', encoding="utf8") if config.metrics_file else None
     running_gcs_metrics = [] if config.gcs_metrics else None
     example_batch = None
 
-    first_profiling_step = global_step + config.skip_first_n_steps_for_profiler
+    first_profiling_step = config.skip_first_n_steps_for_profiler
     if config.enable_profiler and first_profiling_step >= config.max_train_steps:
        raise ValueError("Profiling requested but initial profiling step set past training final step")
     last_profiling_step = np.clip(first_profiling_step + config.profiler_steps -1, first_profiling_step, config.max_train_steps - 1)
     # ======================== Training ================================
     # train
-    for _ in np.arange(get_first_step(unet_state), config.max_train_steps):
+
+    start_step = get_first_step(unet_state)
+    mllog_utils.train_init_print(config)
+    mllog_utils.train_init_stop()
+    mllog_utils.train_run_start()
+    mllog_utils.train_step_start(start_step)
+    for step in np.arange(start_step, config.max_train_steps):
         example_batch = load_next_batch(data_iterator, example_batch, config)
         with mesh, nn_partitioning.axis_rules(config.logical_axis_rules):
             unet_state, train_metric, train_rngs = p_train_step(unet_state,
@@ -419,18 +419,24 @@ def train(config):
                                                                 example_batch,
                                                                 train_rngs)
         new_time = datetime.datetime.now()
-        record_scalar_metrics(train_metric, new_time - last_step_completion, per_device_tflops, config.learning_rate)
-        write_metrics(writer, local_metrics_file, running_gcs_metrics, train_metric, global_step, config)
+        record_scalar_metrics(train_metric, new_time - last_step_completion, per_device_tflops, learning_rate_scheduler(step))
+        write_metrics(writer, train_metric, step, config)
         last_step_completion = new_time
+
+        if config.metrics_file:
+            max_utils.write_metrics_locally(train_metric, step, config, local_metrics_file)
+
+        if config.gcs_metrics and jax.process_index() == 0:
+            running_gcs_metrics = max_utils.write_metrics_for_gcs(train_metric, step, config, running_gcs_metrics)
 
         # Start profiling at end of first step to avoid compilation.
         # Move before for loop to include.
-        if global_step == first_profiling_step:
+        if step == first_profiling_step:
             max_utils.activate_profiler(config)
-        if global_step == last_profiling_step:
+        if step == last_profiling_step:
             max_utils.deactivate_profiler(config)
 
-        global_step += 1
+        mllog_utils.maybe_train_step_log(config, start_step, step, train_metric)
 
     # Create the pipeline using using the trained modules and save it.
     if jax.process_index() == 0:
@@ -472,6 +478,7 @@ def train(config):
     max_utils.close_summary_writer(writer)
 
 def main(argv: Sequence[str]) -> None:
+    mllog_utils.train_init_start()
     max_logging.log(f"Found {jax.device_count()} devices.")
     cc.initialize_cache(os.path.expanduser("~/jax_cache"))
     pyconfig.initialize(argv)

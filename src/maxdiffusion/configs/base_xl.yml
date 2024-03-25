@@ -92,8 +92,7 @@ seed: 0
 output_dir: 'sdxl-model-finetuned'
 per_device_batch_size: 2
 
-cosine_learning_rate_final_fraction: 0.1 
-warmup_steps_fraction: 0.1
+warmup_steps_fraction: 0.0
 learning_rate_schedule_steps: -1 # By default the length of the schedule is set to the number of steps.
 
 # However you may choose a longer schedule (learning_rate_schedule_steps > steps), in which case the training will end before 
@@ -104,8 +103,6 @@ adam_b1: 0.9 # Exponential decay rate to track the first moment of past gradient
 adam_b2: 0.999 # Exponential decay rate to track the second moment of past gradients.
 adam_eps: 1.e-8 # A small constant applied to denominator outside of the square root.
 adam_weight_decay: 1.e-2 # AdamW Weight decay
-
-max_grad_norm: 1.0
 
 enable_profiler: True
 # Skip first n steps for profiling, to omit things like compilation and to give
@@ -118,7 +115,6 @@ prompt: "A magical castle in the middle of a forest, artistic drawing"
 negative_prompt: "purple, red"
 guidance_scale: 9
 num_inference_steps: 20
-seed: 47
 
 # SDXL Lightning parameters
 lightning_from_pt: True
