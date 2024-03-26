@@ -219,20 +219,20 @@ def train(config):
         mesh=mesh,
     )
 
-    # Initialize random unet weights
-    if config.train_new_unet:
-        max_logging.log(f" train_new_unet is set to {config.train_new_unet}, Initializing new UNET weights!!")
-        unet = FlaxUNet2DConditionModel.from_config(
-            pipeline.unet.config,
-            dtype=weight_dtype,
-            split_head_dim=config.split_head_dim,
-            attention_kernel=config.attention,
-            flash_block_sizes=flash_block_sizes,
-            mesh=mesh,
-        )
-        unet_params = unet.init_weights(rng)
-        params["unet"] = unet_params
-        pipeline.unet = unet
+    # # Initialize random unet weights
+    # if config.train_new_unet:
+    #     max_logging.log(f" train_new_unet is set to {config.train_new_unet}, Initializing new UNET weights!!")
+    #     unet = FlaxUNet2DConditionModel.from_config(
+    #         pipeline.unet.config,
+    #         dtype=weight_dtype,
+    #         split_head_dim=config.split_head_dim,
+    #         attention_kernel=config.attention,
+    #         flash_block_sizes=flash_block_sizes,
+    #         mesh=mesh,
+    #     )
+    #     unet_params = unet.init_weights(rng)
+    #     params["unet"] = unet_params
+    #     pipeline.unet = unet
     
     old_params = params
     params = jax.tree_util.tree_map(lambda x: x.astype(weight_dtype), old_params)
@@ -337,6 +337,11 @@ def train(config):
             # Add noise to the latents according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_latents = noise_scheduler.add_noise(noise_scheduler_state, latents, noise, timesteps)
+
+            # TODO - laion dataset was prepared with an extra dim.
+            # need to preprocess the dataset with dim removed.
+            if len(encoder_hidden_states.shape) == 4:
+                encoder_hidden_states = jnp.squeeze(encoder_hidden_states)
 
             # Predict the noise residual and compute loss
             model_pred = pipeline.unet.apply(
