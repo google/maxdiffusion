@@ -420,15 +420,8 @@ def train(config):
                                                                 train_rngs)
         new_time = datetime.datetime.now()
         record_scalar_metrics(train_metric, new_time - last_step_completion, per_device_tflops, learning_rate_scheduler(step))
-        write_metrics(writer, train_metric, step, config)
+        write_metrics(writer, local_metrics_file, running_gcs_metrics, train_metric, step, config)
         last_step_completion = new_time
-
-        if config.metrics_file:
-            max_utils.write_metrics_locally(train_metric, step, config, local_metrics_file)
-
-        if config.gcs_metrics and jax.process_index() == 0:
-            running_gcs_metrics = max_utils.write_metrics_for_gcs(train_metric, step, config, running_gcs_metrics)
-
         # Start profiling at end of first step to avoid compilation.
         # Move before for loop to include.
         if step == first_profiling_step:

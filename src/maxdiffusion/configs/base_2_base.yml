@@ -141,3 +141,9 @@ prompt: "A magical castle in the middle of a forest, artistic drawing"
 negative_prompt: "purple, red"
 guidance_scale: 7.5
 num_inference_steps: 30
+
+# For preprocessing data to tfrecords
+data_files_pattern: ""
+extracted_files_dir: ""
+tfrecords_dir: ""
+no_records_per_shard: 1000
