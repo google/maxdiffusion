@@ -329,7 +329,13 @@ def setup_initial_state(model, tx, config, mesh, model_params, unboxed_abstract_
   return state, state_mesh_shardings
 
 def get_states(mesh, tx, rng, config, pipeline, unet_params, vae_params, training=True):
-  unet_variables = jax.jit(pipeline.unet.init_weights, static_argnames=["eval_only"])(rng, eval_only=not config.train_new_unet)
+  
+  # Needed to initialize weights on multi-host with addressable devices.
+  if config.train_new_unet:
+    unet_variables = jax.jit(pipeline.unet.init_weights, static_argnames=["eval_only"])(rng, eval_only=False)
+  else:
+    unet_variables = pipeline.unet.init_weights(rng, eval_only=True)
+
   unboxed_abstract_state, state_mesh_annotations = get_abstract_state(pipeline.unet, tx, config, mesh, unet_variables, training=training)
   if config.train_new_unet:
     unet_params = unet_variables
