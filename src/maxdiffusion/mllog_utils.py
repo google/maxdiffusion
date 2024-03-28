@@ -14,6 +14,7 @@
 """Utils that relevant to mllog for mlperf submission compliance."""
 import jax
 from mlperf_logging import mllog
+import numpy as np
 
 mllogger = mllog.get_mllogger()
 
@@ -87,11 +88,11 @@ def train_step_end(step, loss, lr):
 
 def maybe_train_step_log(config, start_step, step, metric, train_log_interval: int = 100):
   if step > start_step and step % train_log_interval == 0 or step == config.max_train_steps - 1:
-    train_step_end(
-      step,
-      loss=metric['scalar']['learning/loss'],
-      lr=metric['scalar']['learning/current_learning_rate'],
-    )
+    # convert the jax array to a numpy array for mllog JSON encoding
+    loss = np.asarray(metric['scalar']['learning/loss'])
+    lr = np.asarray(metric['scalar']['learning/current_learning_rate'])
+
+    train_step_end(step, loss, lr)
     # start new tracking except the last step
     if step < config.max_train_steps - 1:
       train_step_start(step)
