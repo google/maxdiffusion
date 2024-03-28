@@ -17,14 +17,17 @@
 """
 Example file of how to prepare tfrecords with latents and hidden_states preprocessed.
 1. Download the dataset as instructed here https://github.com/mlcommons/training/tree/master/stable_diffusion#the-datasets
-2. Create an attachable disk and mount it onto the machine. https://cloud.google.com/tpu/docs/setup-persistent-disk
+2. Create a persistent disk and attach to VM as read-write.
+3. Create 2 directories inside the persistent disk to store the extracted files and created tfrecords.
 3. Run this file:
-
-python read_dataset.py \
-  maxdiffusion/src/maxdiffusion/configs/base_2_base.yml \
+python src/maxdiffusion/pedagogical_examples/to_tfrecords.py \
+  src/maxdiffusion/configs/base_2_base.yml \
   attention=dot_product \
-  laion_dataset_file_pattern=gs://jfacevedo-maxdiffusion/datasets/laion400m/webdataset-latents-filtered/*.tar \
-  tfrecords_dir=/data/tfrecords
+  data_files_pattern=/mnt/disks/laion400-disk/raw_data/filtered_images/*.tar \
+  extracted_files_dir=/mnt/disks/laion400-disk/raw-data-extracted \
+  tfrecords_dir=/mnt/disks/laion400-disk/laion400m_tfrec-tmp \
+  run_name=test \
+  base_output_directory=gs://jfacevedo-maxdiffusion/training_results/
 """
 
 import os
@@ -32,12 +35,18 @@ import glob
 import functools
 from absl import app
 from typing import Sequence
+import time
 
 import tensorflow as tf
+from torchvision import transforms
 import tarfile
 import tensorflow_datasets as tfds
 import numpy as np
 import jax
+import jax.numpy as jnp
+import PIL
+from PIL import Image
+PIL.Image.MAX_IMAGE_PIXELS = None
 
 from maxdiffusion import (
   FlaxStableDiffusionPipeline,
@@ -47,6 +56,15 @@ from maxdiffusion import (
 
 dl_manager = tfds.download.DownloadManager(download_dir="/tmp")
 tmp_dataset = "dataset"
+
+TRANSFORMS = transforms.Compose(
+  [
+    transforms.ToTensor(),
+    transforms.Resize(size=512, interpolation=transforms.InterpolationMode.BICUBIC),
+    transforms.CenterCrop(size=512),
+    transforms.Normalize([0.5], [0.5])
+  ]
+)
 
 def delete_files(path):
   files = glob.glob(path+"/*")
@@ -59,6 +77,7 @@ def tokenize_captions(caption, pipeline, p_encode):
                                     padding="max_length",
                                     truncation=True)
    hidden_states = p_encode(np.stack(text_inputs.input_ids))
+   hidden_states = jnp.squeeze(hidden_states)
    return hidden_states
 
 def image_feature(value):
@@ -96,34 +115,50 @@ def create_example(latent, hidden_states):
     example = tf.train.Example(features=tf.train.Features(feature=feature))
     return example.SerializeToString()
 
-def generate_dataset(config, pipeline, p_encode):
-
+def generate_dataset(config, pipeline, p_encode, p_vae_apply):
   tfrecords_dir=config.tfrecords_dir
+  extracted_files_dir=config.extracted_files_dir
 
   if not os.path.exists(tfrecords_dir):
     os.makedirs(tfrecords_dir)  # creating TFRecords output folder
 
   tf_rec_num = 0
   filenames = tf.io.gfile.glob(config.data_files_pattern)
+  no_records_per_shard = config.no_records_per_shard
+  global_record_count = 0
+  writer = tf.io.TFRecordWriter(
+    tfrecords_dir + "/file_%.2i-%i.tfrec" % (tf_rec_num, (global_record_count + no_records_per_shard)))
+  rng = jax.random.key(0)
   for filename in filenames:
+    extract_to_folder = filename.split("/")[-1].split(".")[0]
+    extract_to_folder = os.path.join(extracted_files_dir,extract_to_folder)
+    os.makedirs(extract_to_folder, exist_ok=True)
+    start = time.time()
     tmp_file = dl_manager.download(filename)
     file = tarfile.open(tmp_file)
-    file.extractall("dataset", filter='data')
-    extracted_filenames = tf.io.gfile.glob("dataset/*.npy")
-    with tf.io.TFRecordWriter(
-       tfrecords_dir + "/file_%.2i-%i.tfrec" % (tf_rec_num, len(extracted_filenames))
-    ) as writer:
-      for latent_file in extracted_filenames:
-        latent = np.load(latent_file)
-        caption_file = latent_file.split(".")[0] + ".txt"
-        with open(caption_file, "r") as f:
-          caption = f.read()
-        hidden_states = np.array(tokenize_captions(caption, pipeline, p_encode))
-        example = create_example(latent, hidden_states)
-        writer.write(example)
-      tf_rec_num+=1
-      delete_files("dataset")
-      os.remove(tmp_file)
+    file.extractall(extract_to_folder, filter='data')
+    extracted_filenames = tf.io.gfile.glob(f"{extract_to_folder}/*.jpg")
+    shard_record_count = 0
+    for image_file in extracted_filenames:
+      img = Image.open(image_file).convert("RGB")
+      latent = img_to_latents(img, p_vae_apply, rng)
+      rng, _ = jax.random.split(rng)
+      caption_file = image_file.split(".")[0] + ".txt"
+      with open(caption_file, "r") as f:
+        caption = f.read()
+      hidden_states = np.array(tokenize_captions(caption, pipeline, p_encode))
+      example = create_example(latent, hidden_states)
+      writer.write(example)
+      shard_record_count+=1
+      global_record_count+=1
+      if shard_record_count >= no_records_per_shard:
+        writer.close()
+        writer = tf.io.TFRecordWriter(
+          tfrecords_dir + "/file_%.2i-%i.tfrec" % (tf_rec_num, (global_record_count + no_records_per_shard)))
+        shard_record_count = 0
+    tf_rec_num+=1
+    os.remove(tmp_file)
+    print("one record time: ", (time.time() - start))
 
 def encode(input_ids, text_encoder, text_encoder_params):
   return text_encoder(
@@ -131,6 +166,24 @@ def encode(input_ids, text_encoder, text_encoder_params):
     params=text_encoder_params,
     train=False
   )[0]
+
+def vae_apply(images, sample_rng, vae, vae_params):
+  vae_outputs = vae.apply(
+    {"params" : vae_params},
+    images,deterministic=True,
+    method=vae.encode
+  )
+  latents = vae_outputs.latent_dist.sample(sample_rng)
+  latents = jnp.transpose(latents, (0, 3, 1, 2))
+  latents = latents * vae.config.scaling_factor
+  return latents
+
+def img_to_latents(img, p_vae_apply, sample_rng):
+  img = TRANSFORMS(img)
+  img = np.expand_dims(np.array(img), axis=0)
+  latents = p_vae_apply(img, sample_rng)
+  latents = jnp.squeeze(latents)
+  return latents
 
 def run(config):
 
@@ -147,7 +200,9 @@ def run(config):
                                            text_encoder=pipeline.text_encoder,
                                            text_encoder_params=params["text_encoder"]))
 
-  generate_dataset(config, pipeline, p_encode)
+  p_vae_apply = jax.jit(functools.partial(vae_apply, vae=pipeline.vae, vae_params=params["vae"]))
+
+  generate_dataset(config, pipeline, p_encode, p_vae_apply)
 
 def main(argv: Sequence[str]) -> None:
    pyconfig.initialize(argv)

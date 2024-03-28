@@ -18,6 +18,8 @@ run_name: ''
 metrics_file: "" # for testing, local file that stores scalar metrics. If empty, no metrics are written.
 # If true save metrics such as loss and TFLOPS to GCS in {base_output_directory}/{run_name}/metrics/
 gcs_metrics: True
+# If true save config to GCS in {base_output_directory}/{run_name}/
+save_config_to_gcs: False
 log_period: 100
 
 pretrained_model_name_or_path: 'stabilityai/stable-diffusion-2-base'
@@ -38,6 +40,10 @@ flash_block_sizes: {}
 #   block_kv_dkv_compute: 64
 #   block_q_dq: 64
 #   block_kv_dq: 64
+
+# If train_new_unet, unet weights will be randomly initialized to train the unet from scratch
+# else they will be loaded from pretrained_model_name_or_path
+train_new_unet: False
 
 # Output directory
 # Create a GCS bucket, e.g. my-maxtext-outputs and set this to "gs://my-maxtext-outputs/"
@@ -106,11 +112,10 @@ cache_latents_text_encoder_outputs: True
 learning_rate: 1.e-7
 scale_lr: False
 max_train_samples: -1
-# max_train_steps takes priority over num_train_epochs.
-max_train_steps: 800
+max_train_steps: 20
 seed: 0
 output_dir: 'sd-model-finetuned'
-tensorboard_dir: 'gs://shahrokhi-maxdiffusion-v5'
+tensorboard_dir: ''
 per_device_batch_size: 1
 
 warmup_steps_fraction: 0.0
@@ -136,3 +141,9 @@ prompt: "A magical castle in the middle of a forest, artistic drawing"
 negative_prompt: "purple, red"
 guidance_scale: 7.5
 num_inference_steps: 30
+
+# For preprocessing data to tfrecords
+data_files_pattern: ""
+extracted_files_dir: ""
+tfrecords_dir: ""
+no_records_per_shard: 1000

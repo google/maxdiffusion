@@ -44,7 +44,6 @@ from flax.linen import partitioning as nn_partitioning
 from jax.experimental.compilation_cache import compilation_cache as cc
 from jax.sharding import Mesh
 from jax.sharding import PartitionSpec as P, PositionalSharding
-from tensorboardX import SummaryWriter
 from transformers import CLIPImageProcessor, set_seed
 
 from maxdiffusion.input_pipeline.input_pipeline_interface import (
@@ -74,6 +73,7 @@ def calculate_training_tflops(pipeline, unet_params, config):
                                     pipeline.text_encoder.config.hidden_size)
     encoder_hidden_states = jnp.zeros(encoder_hidden_states_shape)
     c_unet_apply = jax.jit(pipeline.unet.apply).lower({"params" : unet_params}, latents, timesteps, encoder_hidden_states).compile()
+
     return 3*(c_unet_apply.cost_analysis()[0]['flops'] / 10**12)
 
 def get_first_step(state):
@@ -114,7 +114,34 @@ def record_scalar_metrics(metrics, step_time_delta, per_device_tflops, lr):
   })
   metrics['scalar'].update({'learning/current_learning_rate': lr })
 
-def write_metrics(writer, metrics, step, config):
+_buffered_step = None
+_buffered_metrics = None
+def write_metrics(writer, local_metrics_file, running_gcs_metrics, metrics, step, config):
+  """Entry point for all metrics writing in Train's Main.
+     TODO: would be better as a Class in the future (that initialized all state!)
+
+     To avoid introducing an unnecessary dependency, we "double buffer" -- we hold
+     onto the last metrics and step and only publish when we receive a new metrics and step.
+     The logic is that this ensures that Jax is able to queues train_steps and we
+     don't block when turning "lazy" Jax arrays into real Python numbers.
+  """
+  global _buffered_step, _buffered_metrics
+
+  if _buffered_metrics is not None:
+    if _buffered_step is None:
+      raise ValueError(f"When writing metrics, {_buffered_step=} was none")
+    write_metrics_to_tensorboard(writer, _buffered_metrics, _buffered_step, config)
+
+    if config.metrics_file:
+      max_utils.write_metrics_locally(_buffered_metrics, _buffered_step, config, local_metrics_file)
+
+    if config.gcs_metrics and jax.process_index() == 0:
+      running_gcs_metrics = max_utils.write_metrics_for_gcs(_buffered_metrics, _buffered_step, config, running_gcs_metrics)
+
+  _buffered_step = step
+  _buffered_metrics = metrics
+
+def write_metrics_to_tensorboard(writer, metrics, step, config):
   """Writes metrics to tensorboard"""
   with jax.spmd_mode('allow_all'):
     if jax.process_index() == 0:
@@ -124,10 +151,10 @@ def write_metrics(writer, metrics, step, config):
         writer.add_scalars(metric_name, metrics["scalars"][metric_name], step)
 
     full_log = step % config.log_period == 0
-
-    max_logging.log(f"completed step: {step}, seconds: {metrics['scalar']['perf/step_time_seconds']:.3f}, "
-          f"TFLOP/s/device: {metrics['scalar']['perf/per_device_tflops_per_sec']:.3f}, "
-          f"loss: {metrics['scalar']['learning/loss']:.3f}")
+    if jax.process_index() == 0:
+        max_logging.log(f"completed step: {step}, seconds: {metrics['scalar']['perf/step_time_seconds']:.3f}, "
+            f"TFLOP/s/device: {metrics['scalar']['perf/per_device_tflops_per_sec']:.3f}, "
+            f"loss: {metrics['scalar']['learning/loss']:.3f}")
 
     if full_log and jax.process_index() == 0:
       max_logging.log(
@@ -146,7 +173,7 @@ def get_params_to_save(params):
 def train(config):
     rng = jax.random.PRNGKey(config.seed)
 
-    writer = SummaryWriter(config.tensorboard_dir)
+    writer = max_utils.initialize_summary_writer(config)
     if config.dataset_name is None and config.train_data_dir is None:
         raise ValueError("Need either a dataset name or a training folder.")
 
@@ -190,6 +217,7 @@ def train(config):
         flash_block_sizes=flash_block_sizes,
         mesh=mesh,
     )
+    params = jax.tree_util.tree_map(lambda x: x.astype(weight_dtype), params)
 
     noise_scheduler, noise_scheduler_state = FlaxDDPMScheduler.from_pretrained(config.pretrained_model_name_or_path,
         revision=config.revision, subfolder="scheduler", dtype=jnp.float32)
@@ -224,7 +252,6 @@ def train(config):
 
     per_device_tflops = calculate_training_tflops(pipeline, unet_state.params, config)
     max_logging.log(f"Per train step, estimated total TFLOPs will be {per_device_tflops:.2f}")
-
 
     if config.dataset_name == "lambdalabs/pokemon-blip-captions":
         data_iterator = make_pokemon_train_iterator(
@@ -296,6 +323,7 @@ def train(config):
             # need to preprocess the dataset with dim removed.
             if len(encoder_hidden_states.shape) == 4:
                 encoder_hidden_states = jnp.squeeze(encoder_hidden_states)
+
             # Predict the noise residual and compute loss
             model_pred = pipeline.unet.apply(
                 {"params": unet_params}, noisy_latents, timesteps, encoder_hidden_states, train=True
@@ -341,6 +369,9 @@ def train(config):
             donate_argnums=(0,)
         )
     # Train!
+    max_utils.add_text_to_summary_writer("number_model_parameters", str(num_model_parameters), writer)
+    max_utils.add_text_to_summary_writer("libtpu_init_args", os.environ["LIBTPU_INIT_ARGS"], writer)
+    max_utils.add_config_to_summary_writer(config, writer)
 
     if jax.process_index() == 0:
         max_logging.log("***** Running training *****")
@@ -375,15 +406,8 @@ def train(config):
                                                                 train_rngs)
         new_time = datetime.datetime.now()
         record_scalar_metrics(train_metric, new_time - last_step_completion, per_device_tflops, learning_rate_scheduler(step))
-        write_metrics(writer, train_metric, step, config)
+        write_metrics(writer, local_metrics_file, running_gcs_metrics, train_metric, step, config)
         last_step_completion = new_time
-
-        if config.metrics_file:
-            max_utils.write_metrics_locally(train_metric, step, config, local_metrics_file)
-
-        if config.gcs_metrics and jax.process_index() == 0:
-            running_gcs_metrics = max_utils.write_metrics_for_gcs(train_metric, step, config, running_gcs_metrics)
-
         # Start profiling at end of first step to avoid compilation.
         # Move before for loop to include.
         if step == first_profiling_step:
@@ -430,7 +454,7 @@ def train(config):
                 "safety_checker": safety_checker.params,
             },
         )
-    writer.close()
+    max_utils.close_summary_writer(writer)
 
 def main(argv: Sequence[str]) -> None:
     mllog_utils.train_init_start()

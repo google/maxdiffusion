@@ -16,9 +16,7 @@
 
 [![Unit Tests](https://github.com/google/maxtext/actions/workflows/UnitTests.yml/badge.svg)](https://github.com/google/maxdiffusion/actions/workflows/UnitTests.yml)
 
-# Overview
-
-WARNING: The training code is purely experimental and is under development. 
+# Overview 
 
 MaxDiffusion is a Latent Diffusion model written in pure Python/Jax and targeting Google Cloud TPUs. MaxDiffusion aims to be a launching off point for ambitious Diffusion projects both in research and production. 
 We encourage users to start by experimenting with MaxDiffusion out of the box and then fork and modify MaxDiffusion to meet their needs.
@@ -27,6 +25,8 @@ MaxDiffusion supports
 * Stable Diffusion 2 base (training and inference)
 * Stable Diffusion 2.1 (training and inference) 
 * Stable Diffusion XL (inference).
+
+WARNING: The training code is purely experimental and is under development.
 
 # Table of Contents
 
@@ -51,19 +51,27 @@ pip3 install -e .
 ```
 4. After installation completes, run training with the command:
 ```bash
-python -m src.maxdiffusion.models.train src/maxdiffusion/configs/base_2_base.yml run_name="my_run" base_output_directory="gs://your-bucket/"
+python -m src.maxdiffusion.models.train src/maxdiffusion/configs/base_2_base.yml run_name="my_run" base_output_directory="gs://your-bucket/" train_data_dir=gs://jfacevedo-maxdiffusion/laion400m/tf_records
 ```
 5. If you want to generate images, you can do it as follows.
 - Stable Diffusion 2.1
   ```bash
-  python -m src.maxdiffusion.generate src/maxdiffusion/configs/base.yml
+  python -m src.maxdiffusion.generate src/maxdiffusion/configs/base.yml run_name="my_run"
+  ```
+
+- Stable Diffusion XL Lightning
+
+  Multi host supported with sharding annotations:
+
+  ```bash
+  python -m src.maxdiffusion.generate_sdxl src/maxdiffusion/configs/base_xl_lightning.yml run_name="my_run"
   ```
 - Stable Diffusion XL
 
   Multi host supported with sharding annotations:
 
   ```bash
-  python -m src.maxdiffusion.generate_sdxl src/maxdiffusion/configs/base_xl.yml
+  python -m src.maxdiffusion.generate_sdxl src/maxdiffusion/configs/base_xl.yml run_name="my_run"
   ```
 
   Single host pmap version:
