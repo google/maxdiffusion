@@ -18,6 +18,8 @@ run_name: ''
 metrics_file: "" # for testing, local file that stores scalar metrics. If empty, no metrics are written.
 # If true save metrics such as loss and TFLOPS to GCS in {base_output_directory}/{run_name}/metrics/
 gcs_metrics: True
+# If true save config to GCS in {base_output_directory}/{run_name}/
+save_config_to_gcs: False
 log_period: 100
 
 pretrained_model_name_or_path: 'stabilityai/stable-diffusion-xl-base-1.0'
@@ -28,6 +30,10 @@ from_pt: False
 split_head_dim: True
 attention: 'dot_product' # Supported attention: dot_product, flash
 flash_block_sizes: {}
+
+# If train_new_unet, unet weights will be randomly initialized to train the unet from scratch
+# else they will be loaded from pretrained_model_name_or_path
+train_new_unet: False
 
 # Output directory
 # Create a GCS bucket, e.g. my-maxtext-outputs and set this to "gs://my-maxtext-outputs/"

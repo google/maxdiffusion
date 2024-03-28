@@ -17,15 +17,15 @@
 """
 Example file of how to prepare tfrecords with latents and hidden_states preprocessed.
 1. Download the dataset as instructed here https://github.com/mlcommons/training/tree/master/stable_diffusion#the-datasets
-2. Mount gcs bucket using gcs fuse.
-3. Create 2 directories inside gcs bucket to store the extracted files and created tfrecords.
+2. Create a persistent disk and attach to VM as read-write.
+3. Create 2 directories inside the persistent disk to store the extracted files and created tfrecords.
 3. Run this file:
 python src/maxdiffusion/pedagogical_examples/to_tfrecords.py \
   src/maxdiffusion/configs/base_2_base.yml \
   attention=dot_product \
-  data_files_pattern=/home/jfacevedo/gcsfuse/laion400m/raw_data/filtered_images/*.tar \
-  extracted_files_dir=/tmp/extracted \
-  tfrecords_dir=/home/jfacevedo/gcsfuse/laion400m/processed/laion400m_tfrec \
+  data_files_pattern=/mnt/disks/laion400-disk/raw_data/filtered_images/*.tar \
+  extracted_files_dir=/mnt/disks/laion400-disk/raw-data-extracted \
+  tfrecords_dir=/mnt/disks/laion400-disk/laion400m_tfrec-tmp \
   run_name=test \
   base_output_directory=gs://jfacevedo-maxdiffusion/training_results/
 """
@@ -35,6 +35,7 @@ import glob
 import functools
 from absl import app
 from typing import Sequence
+import time
 
 import tensorflow as tf
 from torchvision import transforms
@@ -43,7 +44,9 @@ import tensorflow_datasets as tfds
 import numpy as np
 import jax
 import jax.numpy as jnp
+import PIL
 from PIL import Image
+PIL.Image.MAX_IMAGE_PIXELS = None
 
 from maxdiffusion import (
   FlaxStableDiffusionPipeline,
@@ -127,10 +130,14 @@ def generate_dataset(config, pipeline, p_encode, p_vae_apply):
     tfrecords_dir + "/file_%.2i-%i.tfrec" % (tf_rec_num, (global_record_count + no_records_per_shard)))
   rng = jax.random.key(0)
   for filename in filenames:
+    extract_to_folder = filename.split("/")[-1].split(".")[0]
+    extract_to_folder = os.path.join(extracted_files_dir,extract_to_folder)
+    os.makedirs(extract_to_folder, exist_ok=True)
+    start = time.time()
     tmp_file = dl_manager.download(filename)
     file = tarfile.open(tmp_file)
-    file.extractall(extracted_files_dir, filter='data')
-    extracted_filenames = tf.io.gfile.glob(f"{extracted_files_dir}/*.jpg")
+    file.extractall(extract_to_folder, filter='data')
+    extracted_filenames = tf.io.gfile.glob(f"{extract_to_folder}/*.jpg")
     shard_record_count = 0
     for image_file in extracted_filenames:
       img = Image.open(image_file).convert("RGB")
@@ -150,8 +157,8 @@ def generate_dataset(config, pipeline, p_encode, p_vae_apply):
           tfrecords_dir + "/file_%.2i-%i.tfrec" % (tf_rec_num, (global_record_count + no_records_per_shard)))
         shard_record_count = 0
     tf_rec_num+=1
-    delete_files(tmp_dataset)
     os.remove(tmp_file)
+    print("one record time: ", (time.time() - start))
 
 def encode(input_ids, text_encoder, text_encoder_params):
   return text_encoder(
@@ -170,7 +177,7 @@ def vae_apply(images, sample_rng, vae, vae_params):
   latents = jnp.transpose(latents, (0, 3, 1, 2))
   latents = latents * vae.config.scaling_factor
   return latents
-   
+
 def img_to_latents(img, p_vae_apply, sample_rng):
   img = TRANSFORMS(img)
   img = np.expand_dims(np.array(img), axis=0)

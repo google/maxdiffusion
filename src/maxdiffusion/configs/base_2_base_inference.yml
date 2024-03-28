@@ -31,6 +31,10 @@ split_head_dim: True
 attention: 'dot_product' # Supported attention: dot_product, flash
 flash_block_sizes: {}
 
+# If train_new_unet, unet weights will be randomly initialized to train the unet from scratch
+# else they will be loaded from pretrained_model_name_or_path
+train_new_unet: False
+
 # Output directory
 # Create a GCS bucket, e.g. my-maxtext-outputs and set this to "gs://my-maxtext-outputs/"
 base_output_directory: ""

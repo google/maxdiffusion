@@ -37,7 +37,6 @@ from PIL import Image
 
 from maxdiffusion import FlaxStableDiffusionPipeline
 from maxdiffusion.models import FlaxAutoencoderKL
-from maxdiffusion.image_processor import VaeImageProcessor
 
 HOME_DIR = pathlib.Path.home()
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -90,7 +89,7 @@ class InputPipelineInterface(unittest.TestCase):
 
   def test_tfrecord(self):
     """Validate latents match a deterministic output image"""
-    
+
     image_feature_description = {
       "latents": tf.io.FixedLenFeature([], tf.string),
       "hidden_states": tf.io.FixedLenFeature([], tf.string)
@@ -98,7 +97,7 @@ class InputPipelineInterface(unittest.TestCase):
     def _parse_image_function(example_proto):
       # Parse the input tf.train.Example proto using the dictionary above.
       return tf.io.parse_single_example(example_proto, image_feature_description)
-        
+
     @tf.function()
     def prepare_sample(features):
       latents = tf.io.parse_tensor(tnp.asarray(features["latents"]), out_type=tf.float32)
@@ -106,7 +105,7 @@ class InputPipelineInterface(unittest.TestCase):
       return {"pixel_values" : latents, "input_ids" : hidden_states}
 
 
-    raw_image_dataset = tf.data.TFRecordDataset('gs://jfacevedo-maxdiffusion/laion400m/processed/laion400m_tfrec/file_00-1000.tfrec')
+    raw_image_dataset = tf.data.TFRecordDataset('gs://maxdiffusion-github-runner-test-assets/tfrecords/file_00-1000.tfrec')
     parsed_image_dataset = raw_image_dataset.map(_parse_image_function).map(prepare_sample).batch(4)
 
     iterator = iter(parsed_image_dataset)
@@ -129,19 +128,16 @@ class InputPipelineInterface(unittest.TestCase):
     image = (image / 2 + 0.5).clip(0, 1).transpose(0, 2, 3, 1)
     image = np.array(image)
     test_image = image[0]
+    test_image = (test_image * 255).round().astype("uint8")
 
     img_url = os.path.join(THIS_DIR,'images','latent_test.png')
     base_image = np.array(Image.open(img_url)).astype(np.uint8)
     ssim_compare = ssim(base_image, test_image,
       multichannel=True, channel_axis=-1, data_range=255
     )
-    breakpoint()
 
     assert base_image.shape == test_image.shape
     assert ssim_compare >=0.70
-
-
-
 
 if __name__ == '__main__':
   absltest.main()

@@ -30,7 +30,6 @@ from absl import app
 from maxdiffusion import (
     FlaxDDPMScheduler,
     FlaxStableDiffusionPipeline,
-    FlaxUNet2DConditionModel,
     FlaxAutoencoderKL,
     max_logging,
     max_utils,
@@ -74,7 +73,7 @@ def calculate_training_tflops(pipeline, unet_params, config):
                                     pipeline.text_encoder.config.hidden_size)
     encoder_hidden_states = jnp.zeros(encoder_hidden_states_shape)
     c_unet_apply = jax.jit(pipeline.unet.apply).lower({"params" : unet_params}, latents, timesteps, encoder_hidden_states).compile()
-    
+
     return 3*(c_unet_apply.cost_analysis()[0]['flops'] / 10**12)
 
 def get_first_step(state):
@@ -218,10 +217,7 @@ def train(config):
         flash_block_sizes=flash_block_sizes,
         mesh=mesh,
     )
-    
-    old_params = params
-    params = jax.tree_util.tree_map(lambda x: x.astype(weight_dtype), old_params)
-    max_utils.delete_pytree(old_params)
+    params = jax.tree_util.tree_map(lambda x: x.astype(weight_dtype), params)
 
     noise_scheduler, noise_scheduler_state = FlaxDDPMScheduler.from_pretrained(config.pretrained_model_name_or_path,
         revision=config.revision, subfolder="scheduler", dtype=jnp.float32)
@@ -376,7 +372,7 @@ def train(config):
     max_utils.add_text_to_summary_writer("number_model_parameters", str(num_model_parameters), writer)
     max_utils.add_text_to_summary_writer("libtpu_init_args", os.environ["LIBTPU_INIT_ARGS"], writer)
     max_utils.add_config_to_summary_writer(config, writer)
-    
+
     if jax.process_index() == 0:
         max_logging.log("***** Running training *****")
         max_logging.log(f"  Instantaneous batch size per device = {config.per_device_batch_size}")

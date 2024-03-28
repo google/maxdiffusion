@@ -16,9 +16,7 @@
 
 [![Unit Tests](https://github.com/google/maxtext/actions/workflows/UnitTests.yml/badge.svg)](https://github.com/google/maxdiffusion/actions/workflows/UnitTests.yml)
 
-# Overview
-
-WARNING: The training code is purely experimental and is under development. 
+# Overview 
 
 MaxDiffusion is a Latent Diffusion model written in pure Python/Jax and targeting Google Cloud TPUs. MaxDiffusion aims to be a launching off point for ambitious Diffusion projects both in research and production. 
 We encourage users to start by experimenting with MaxDiffusion out of the box and then fork and modify MaxDiffusion to meet their needs.
@@ -27,6 +25,8 @@ MaxDiffusion supports
 * Stable Diffusion 2 base (training and inference)
 * Stable Diffusion 2.1 (training and inference) 
 * Stable Diffusion XL (inference).
+
+WARNING: The training code is purely experimental and is under development.
 
 # Table of Contents
 
