@@ -299,7 +299,10 @@ class FlaxStableDiffusionPipeline(FlaxDiffusionPipeline):
             for i in range(num_inference_steps):
                 latents, scheduler_state = loop_body(i, (latents, scheduler_state))
         else:
-            latents, _ = jax.lax.fori_loop(0, num_inference_steps, loop_body, (latents, scheduler_state))
+            val = (latents, scheduler_state)
+            for i in range(0, num_inference_steps):
+                val = loop_body(i, val)
+            latents, _ = val
 
         # scale and decode the image latents with vae
         latents = 1 / self.vae.config.scaling_factor * latents
