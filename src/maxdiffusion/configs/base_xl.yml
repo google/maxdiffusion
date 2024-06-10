@@ -23,6 +23,7 @@ gcs_metrics: False
 save_config_to_gcs: False
 log_period: 100
 
+model_name: 'SDXL-1.0'
 pretrained_model_name_or_path: 'stabilityai/stable-diffusion-xl-base-1.0'
 revision: 'refs/pr/95'
 dtype: 'bfloat16'
@@ -177,6 +178,7 @@ lightning_ckpt: ""
 enable_mllog: False
 
 #controlnet
+use_controlnet: False
 controlnet_model_name_or_path: 'diffusers/controlnet-canny-sdxl-1.0'
 controlnet_from_pt: True
 controlnet_conditioning_scale: 0.5

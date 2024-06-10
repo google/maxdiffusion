@@ -23,6 +23,7 @@ gcs_metrics: True
 save_config_to_gcs: False
 log_period: 100
 
+model_name: 'SDXL-1-5'
 pretrained_model_name_or_path: 'runwayml/stable-diffusion-v1-5'
 revision: 'flax'
 dtype: 'bfloat16'
@@ -170,6 +171,7 @@ num_inference_steps: 30
 enable_mllog: False
 
 # controlnet
+use_controlnet: False
 controlnet_model_name_or_path: 'lllyasviel/sd-controlnet-canny'
 controlnet_from_pt: True
 controlnet_conditioning_scale: 1.0

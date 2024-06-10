@@ -5,7 +5,7 @@ import numpy as np
 
 from ..import pyconfig
 from absl.testing import absltest
-from maxdiffusion.generate import run as generate_run
+from maxdiffusion.benchmarks.inference.sd2.generate import run as generate_run
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
 

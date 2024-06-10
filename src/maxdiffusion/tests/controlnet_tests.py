@@ -5,8 +5,8 @@ import numpy as np
 
 from ..import pyconfig
 from absl.testing import absltest
-from maxdiffusion.controlnet.generate_controlnet_replicated import run as generate_run
-from maxdiffusion.controlnet.generate_controlnet_sdxl_replicated import run as generate_run_sdxl
+from maxdiffusion.benchmarks.inference.controlnet.generate_controlnet_replicated import run as generate_run
+from maxdiffusion.benchmarks.inference.controlnet.generate_controlnet_sdxl_replicated import run as generate_run_sdxl
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
 

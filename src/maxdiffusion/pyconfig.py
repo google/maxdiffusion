@@ -136,6 +136,11 @@ class HyperParameters(): # pylint: disable=missing-class-docstring
   def get_keys(self):
     return _config.keys
 
+  def get(self, attr):
+    if attr not in _config.keys:
+      raise ValueError(f"Requested key {attr}, not in config")
+    return _config.keys[attr]
+
 def initialize(argv, **kwargs):
   global _config, config
   _config = _HyperParameters(argv, **kwargs)

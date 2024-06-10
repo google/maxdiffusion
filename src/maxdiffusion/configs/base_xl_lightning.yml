@@ -22,6 +22,7 @@ gcs_metrics: True
 save_config_to_gcs: False
 log_period: 100
 
+model_name: 'SDXL-Lightning'
 pretrained_model_name_or_path: 'stabilityai/stable-diffusion-xl-base-1.0'
 revision: 'refs/pr/95'
 dtype: 'bfloat16'

@@ -98,22 +98,22 @@ To generate images, run the following command:
   Single and Multi host inference is supported with sharding annotations:
 
   ```bash
-  python -m src.maxdiffusion.generate_sdxl src/maxdiffusion/configs/base_xl.yml run_name="my_run"
+  python -m src.maxdiffusion.benchmarks.inference.sdxlbase.generate_sdxl src/maxdiffusion/configs/base_xl.yml run_name="my_run"
   ```
 
   Single host pmap version:
   
   ```bash
-  python -m src.maxdiffusion.generate_sdxl_replicated
+  python -m src.maxdiffusion.benchmarks.inference.sdxlbase.generate_sdxl_replicated
   ```
 
 - **Stable Diffusion 2 base**
   ```bash
-  python -m src.maxdiffusion.generate src/maxdiffusion/configs/base_2_base.yml run_name="my_run"
+  python -m src.maxdiffusion.benchmarks.inference.sd2.generate src/maxdiffusion/configs/base_2_base.yml run_name="my_run"
 
 - **Stable Diffusion 2.1**
   ```bash
-  python -m src.maxdiffusion.generate src/maxdiffusion/configs/base21.yml run_name="my_run"
+  python -m src.maxdiffusion.benchmarks.inference.sd2.generate src/maxdiffusion/configs/base21.yml run_name="my_run"
   ```
 
   ## SDXL Lightning
@@ -121,7 +121,7 @@ To generate images, run the following command:
   Single and Multi host inference is supported with sharding annotations:
 
     ```bash
-    python -m src.maxdiffusion.generate_sdxl src/maxdiffusion/configs/base_xl.yml run_name="my_run" lightning_repo="ByteDance/SDXL-Lightning" lightning_ckpt="sdxl_lightning_4step_unet.safetensors"
+    python -m src.maxdiffusion.benchmarks.inference.sdxlbase.generate_sdxl src/maxdiffusion/configs/base_xl.yml run_name="my_run" lightning_repo="ByteDance/SDXL-Lightning" lightning_ckpt="sdxl_lightning_4step_unet.safetensors"
     ```
 
   ## ControlNet
@@ -131,13 +131,13 @@ To generate images, run the following command:
   - Stable Diffusion 1.4
 
     ```bash
-    python src/maxdiffusion/controlnet/generate_controlnet_replicated.py
+    python src/maxdiffusion/benchmarks/inference/controlnet/generate_controlnet_replicated.py
     ```
 
   - Stable Diffusion XL
 
     ```bash
-    python src/maxdiffusion/controlnet/generate_controlnet_sdxl_replicated.py
+    python src/maxdiffusion/benchmarks/inference/controlnet/generate_controlnet_sdxl_replicated.py
     ```
   
 
