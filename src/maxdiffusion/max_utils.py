@@ -206,6 +206,22 @@ def upload_blob(destination_gcs_name, source_file_name):
   blob = bucket.blob(prefix_name)
   blob.upload_from_filename(source_file_name)
 
+def walk_and_upload_blobs(config, output_dir):
+  user_dir = os.path.expanduser('~')
+  uploaded_files = set()
+  for root, _, files in os.walk(os.path.abspath(output_dir)):
+    for file in files:
+      file_to_upload = os.path.join(root, file)
+      if file_to_upload in uploaded_files:
+        continue
+      gcs_file_name = os.path.join(config.base_output_directory,
+                                file_to_upload.replace(user_dir,"").strip("/").
+                                replace("maxdiffusion","").strip("/"))
+      max_logging.log(f"Moving file {file_to_upload} to {gcs_file_name}")
+      upload_blob(gcs_file_name, file_to_upload)
+      uploaded_files.add(file_to_upload)
+      max_logging.log(f"File {file_to_upload} moved successfully!")
+
 def initialize_jax_distributed_system():
   """ The best recipe to initialize the Jax Distributed System has varied over time. We keep a layer of
       indirection in MaxText to avoid breaking the call sites unnecessarily.

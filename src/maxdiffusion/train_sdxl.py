@@ -45,7 +45,8 @@ from maxdiffusion.train_utils import (
     write_metrics,
     get_params_to_save,
     compute_snr,
-    generate_timestep_weights
+    generate_timestep_weights,
+    save_checkpoint
 )
 
 from transformers import FlaxCLIPTextModel, FlaxCLIPTextModelWithProjection
@@ -408,11 +409,12 @@ def train(config):
     mllog_utils.train_init_stop(config)
     mllog_utils.train_run_start(config)
     mllog_utils.train_step_start(config, start_step)
-    for step in np.arange(start_step, config.max_train_steps):
+    for step in np.arange(start_step, config.max_train_steps+1):
         example_batch = load_next_batch(data_iterator, example_batch, config)
         unet_state, train_metric, train_rngs = p_train_step(unet_state,
                                                             example_batch,
                                                             train_rngs)
+        samples_count = total_train_batch_size * (step + 1)
         new_time = datetime.datetime.now()
         record_scalar_metrics(train_metric, new_time - last_step_completion, per_device_tflops, learning_rate_scheduler(step))
         if config.write_metrics:
@@ -426,9 +428,16 @@ def train(config):
             max_utils.deactivate_profiler(config)
 
         mllog_utils.maybe_train_step_log(config, start_step, step, train_metric)
+        if step != 0 and config.checkpoint_every != -1 and samples_count % config.checkpoint_every == 0:
+           checkpoint_name = f"samples-{samples_count}"
+           save_checkpoint(pipeline.unet.save_pretrained,
+                           get_params_to_save(unet_state.params),
+                           config,
+                           os.path.join(config.checkpoint_dir, checkpoint_name))
 
     # Create the pipeline using using the trained modules and save it.
     if jax.process_index() == 0:
+        checkpoint_name = "final"
         # Restore vae and text encoder if we cached latents and encoder outputs.
         if config.cache_latents_text_encoder_outputs:
             text_encoder = FlaxCLIPTextModel.from_pretrained(
@@ -456,16 +465,13 @@ def train(config):
             tokenizer_2=pipeline.tokenizer_2,
             scheduler=noise_scheduler,
         )
-
-        pipeline.save_pretrained(
-            config.output_dir,
-            params={
-                "text_encoder": get_params_to_save(params["text_encoder"]),
-                "text_encoder_2" : get_params_to_save(params["text_encoder_2"]),
-                "vae": get_params_to_save(params["vae"]),
-                "unet": get_params_to_save(unet_state.params),
-            },
-        )
+        params={
+            "text_encoder": get_params_to_save(params["text_encoder"]),
+            "text_encoder_2" : get_params_to_save(params["text_encoder_2"]),
+            "vae": get_params_to_save(params["vae"]),
+            "unet": get_params_to_save(unet_state.params),
+        }
+        save_checkpoint(pipeline.save_pretrained, params, config, os.path.join(config.checkpoint_dir, checkpoint_name))
     max_utils.close_summary_writer(writer)
 
 def main(argv: Sequence[str]) -> None:

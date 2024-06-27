@@ -43,24 +43,27 @@ class Train(unittest.TestCase):
 
   def test_sdxl_config(self):
     output_dir="train-smoke-test"
+    run_name="sdxl_train_smoke_test"
     train_sdxl_main([None,os.path.join(THIS_DIR,'..','configs','base_xl.yml'),
       "pretrained_model_name_or_path=stabilityai/stable-diffusion-xl-base-1.0",
-      "revision=refs/pr/95","dtype=bfloat16","run_name=sdxl_train_smoke_test",
+      "revision=refs/pr/95","dtype=bfloat16",f"run_name={run_name}",
       "max_train_steps=21","dataset_name=diffusers/pokemon-gpt4-captions",
       "resolution=1024","per_device_batch_size=1","snr_gamma=5.0",
       'timestep_bias={"strategy" : "later", "multiplier" : 2.0, "portion" : 0.25}',
-      "base_output_directory=gs://maxdiffusion-tests", f"output_dir={output_dir}"])
+      "base_output_directory=gs://maxdiffusion-tests", f"output_dir={output_dir}",
+      "cache_dir=gs://jfacevedo-maxdiffusion/cache_dir"])
 
     img_url = os.path.join(THIS_DIR,'images','test_sdxl.png')
     base_image = np.array(Image.open(img_url)).astype(np.uint8)
 
     pyconfig.initialize([None,os.path.join(THIS_DIR,'..','configs','base_xl.yml'),
-      f"pretrained_model_name_or_path={output_dir}","run_name=sdxl_train_smoke_test",
+      f"pretrained_model_name_or_path={output_dir}/{run_name}/checkpoints/final",
+      f"run_name={run_name}",
       "revision=main","dtype=bfloat16","resolution=1024",
       "prompt=A magical castle in the middle of a forest, artistic drawing",
       "negative_prompt=purple, red","guidance_scale=9",
       "num_inference_steps=20","seed=47","per_device_batch_size=1",
-      "split_head_dim=False"])
+      "split_head_dim=False", "cache_dir=gs://jfacevedo-maxdiffusion/cache_dir"])
 
     images = generate_run_xl(pyconfig.config)
     test_image = np.array(images[0]).astype(np.uint8)
@@ -72,21 +75,22 @@ class Train(unittest.TestCase):
 
     cleanup(output_dir)
 
-
   def test_sd21_config(self):
     output_dir="train-smoke-test"
+    run_name="sd2.1_smoke_test"
     train_main([None,os.path.join(THIS_DIR,'..','configs','base21.yml'),
       "pretrained_model_name_or_path=stabilityai/stable-diffusion-2-1",
-      "revision=bf16","dtype=bfloat16","run_name=sd2.1_smoke_test",
+      "revision=bf16","dtype=bfloat16",f"run_name={run_name}",
       "max_train_steps=21","dataset_name=diffusers/pokemon-gpt4-captions",
       "resolution=768","per_device_batch_size=1",
-      "base_output_directory=gs://maxdiffusion-tests", f"output_dir={output_dir}"])
+      "base_output_directory=gs://maxdiffusion-tests", f"output_dir={output_dir}",
+      "cache_dir=gs://jfacevedo-maxdiffusion/cache_dir"])
 
     img_url = os.path.join(THIS_DIR,'images','test.png')
     base_image = np.array(Image.open(img_url)).astype(np.uint8)
 
     pyconfig.initialize([None,os.path.join(THIS_DIR,'..','configs','base21.yml'),
-      f"pretrained_model_name_or_path={output_dir}",
+      f"pretrained_model_name_or_path={output_dir}/{run_name}/checkpoints/final",
       "revision=bf16","dtype=bfloat16","resolution=768",
       "prompt=A magical castle in the middle of a forest, artistic drawing",
       "negative_prompt=purple, red","guidance_scale=7.5",
@@ -94,6 +98,35 @@ class Train(unittest.TestCase):
 
     images = generate_run(pyconfig.config)
     test_image = np.array(images[1]).astype(np.uint8)
+    ssim_compare = ssim(base_image, test_image,
+      multichannel=True, channel_axis=-1, data_range=255
+    )
+    assert base_image.shape == test_image.shape
+    assert ssim_compare >=0.70
+
+    cleanup(output_dir)
+
+  def test_sd15_config(self):
+    output_dir="train-smoke-test"
+    run_name="sd15_smoke_test"
+    train_main([None,os.path.join(THIS_DIR,'..','configs','base15.yml'),
+      f"run_name={run_name}", "checkpoint_every=256","upload_ckpts_to_gcs=True",
+      "max_train_steps=21","per_device_batch_size=8",
+      "base_output_directory=gs://maxdiffusion-github-runner-test-assets/training_results/", f"output_dir={output_dir}"])
+
+    img_url = os.path.join(THIS_DIR,'images','test_sd15.png')
+    base_image = np.array(Image.open(img_url)).astype(np.uint8)
+
+    # here we test the unet saving works.
+    pyconfig.initialize([None,os.path.join(THIS_DIR,'..','configs','base15.yml'),
+      "dtype=bfloat16",
+      "prompt=A magical castle in the middle of a forest, artistic drawing",
+      "negative_prompt=purple, red","guidance_scale=7.5",
+      "num_inference_steps=30","seed=47", "cache_dir=gs://jfacevedo-maxdiffusion/cache_dir",
+      f"unet_checkpoint=gs://maxdiffusion-github-runner-test-assets/training_results/{output_dir}/{run_name}/checkpoints/UNET-samples-512"])
+
+    images = generate_run(pyconfig.config)
+    test_image = np.array(images[0]).astype(np.uint8)
     ssim_compare = ssim(base_image, test_image,
       multichannel=True, channel_axis=-1, data_range=255
     )

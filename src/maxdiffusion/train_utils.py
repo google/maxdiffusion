@@ -14,6 +14,8 @@
  limitations under the License.
  """
 
+import os
+import shutil
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -42,6 +44,9 @@ def validate_train_config(config):
   _validate_gcs_bucket_name(config.base_output_directory, "base_output_directory")
 
   assert config.max_train_steps > 0 or config.num_train_epochs > 0, "You must set steps or learning_rate_schedule_steps to a positive interger."
+
+  if config.checkpoint_every > 0 and len(config.checkpoint_dir) <= 0:
+    raise AssertionError("Need to set checkpoint_dir when checkpoint_every is set.")
 
 def record_scalar_metrics(metrics, step_time_delta, per_device_tflops, lr):
   """Records scalar metrics to be written to tensorboard"""
@@ -154,3 +159,33 @@ def generate_timestep_weights(config, num_timesteps):
   weights[bias_indices] *= timestep_bias_config["multiplier"]
   weights /= weights.sum()
   return jnp.array(weights)
+
+def save_checkpoint(save_fn, params, config, output_dir):
+  """
+  Save checkpoint.
+
+  Args:
+    save_fn: Must be a save_pretrained fn, for example, pipeline.save_pretrained.
+    params: params to save.
+    config: pyconfig
+    output_dir: local directory path.
+  """
+  user_dir = os.path.expanduser("~")
+  local_output_dir = output_dir.replace(os.path.join(
+    config.base_output_directory,
+    config.run_name
+  ), user_dir)
+
+  save_fn(
+    local_output_dir,
+    params=params
+  )
+
+  if jax.process_index() == 0 and config.upload_ckpts_to_gcs:
+    max_utils.walk_and_upload_blobs(config, local_output_dir)
+    # delete files in output_dir to save space
+    max_logging.log(f"Deleting {local_output_dir} to save space.")
+    shutil.rmtree(local_output_dir)
+
+  return local_output_dir
+

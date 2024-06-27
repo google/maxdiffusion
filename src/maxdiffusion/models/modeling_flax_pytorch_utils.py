@@ -17,6 +17,7 @@ import re
 
 import jax
 import jax.numpy as jnp
+from flax.linen import Partitioned
 from flax.traverse_util import flatten_dict, unflatten_dict
 from jax.random import PRNGKey
 
@@ -59,7 +60,10 @@ def rename_key_and_reshape_tensor(pt_tuple_key, pt_tensor, random_flax_state_dic
                 weight_name = "kernel" if weight_name == "weight" else weight_name
                 renamed_pt_tuple_key = pt_tuple_key[:-2] + (rename_to, weight_name)
                 if renamed_pt_tuple_key in random_flax_state_dict:
-                    assert random_flax_state_dict[renamed_pt_tuple_key].shape == pt_tensor.T.shape
+                    if isinstance(random_flax_state_dict[renamed_pt_tuple_key], Partitioned):
+                        assert random_flax_state_dict[renamed_pt_tuple_key].value.shape == pt_tensor.T.shape
+                    else:
+                        assert random_flax_state_dict[renamed_pt_tuple_key].shape == pt_tensor.T.shape
                     return renamed_pt_tuple_key, pt_tensor.T
 
     if (

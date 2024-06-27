@@ -31,6 +31,7 @@ from jax.sharding import PositionalSharding
 
 from maxdiffusion import (
     FlaxStableDiffusionXLPipeline,
+    FlaxUNet2DConditionModel,
     FlaxEulerDiscreteScheduler,
     FlaxDDPMScheduler
 )
@@ -133,6 +134,17 @@ def run(config):
     flash_block_sizes=flash_block_sizes,
     mesh=mesh
   )
+  if len(config.unet_checkpoint) > 0:
+    unet, unet_params = FlaxUNet2DConditionModel.from_pretrained(
+            config.unet_checkpoint,
+            split_head_dim=config.split_head_dim,
+            norm_num_groups=config.norm_num_groups,
+            attention_kernel=config.attention,
+            flash_block_sizes=flash_block_sizes,
+            mesh=mesh
+        )
+    params["unet"] = unet_params
+    pipeline.unet = unet
 
   # if this checkpoint was trained with maxdiffusion
   # the training scheduler was saved with it, switch it

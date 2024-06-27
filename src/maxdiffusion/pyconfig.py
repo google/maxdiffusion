@@ -117,6 +117,8 @@ class _HyperParameters():
 
     if "gs://" in raw_keys["pretrained_model_name_or_path"]:
       raw_keys["pretrained_model_name_or_path"] = max_utils.download_blobs(raw_keys["pretrained_model_name_or_path"], "/tmp")
+    if "gs://" in raw_keys["unet_checkpoint"]:
+      raw_keys["unet_checkpoint"] = max_utils.download_blobs(raw_keys["unet_checkpoint"], "/tmp")
 
 def get_num_target_devices(raw_keys):
   return len(jax.devices())

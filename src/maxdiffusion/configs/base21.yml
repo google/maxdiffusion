@@ -21,9 +21,10 @@ write_metrics: True
 gcs_metrics: True
 # If true save config to GCS in {base_output_directory}/{run_name}/
 save_config_to_gcs: False
-log_period: 100
+log_period: 10000000000  # Flushes Tensorboard
 
 pretrained_model_name_or_path: 'stabilityai/stable-diffusion-2-1'
+unet_checkpoint: ''
 revision: 'bf16'
 dtype: 'bfloat16'
 # Set true to load weights from pytorch
@@ -125,6 +126,10 @@ tokenize_captions_num_proc: 4
 transform_images_num_proc: 4
 reuse_example_batch: False
 enable_data_shuffling: True
+
+# checkpoint every number of samples, -1 means don't checkpoint.
+checkpoint_every: -1
+upload_ckpts_to_gcs: False
 
 # Prepare image latents and text encoder outputs
 # during dataset creation to reduce memory consumption.

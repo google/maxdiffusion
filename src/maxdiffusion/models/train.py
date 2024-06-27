@@ -32,6 +32,7 @@ from maxdiffusion import (
     FlaxDDPMScheduler,
     FlaxStableDiffusionPipeline,
     FlaxAutoencoderKL,
+    FlaxUNet2DConditionModel,
     max_logging,
     max_utils,
     pyconfig,
@@ -47,7 +48,8 @@ from maxdiffusion.train_utils import (
     write_metrics,
     get_params_to_save,
     compute_snr,
-    generate_timestep_weights
+    generate_timestep_weights,
+    save_checkpoint
 )
 
 from transformers import FlaxCLIPTextModel
@@ -155,6 +157,17 @@ def train(config):
         flash_block_sizes=flash_block_sizes,
         mesh=mesh,
     )
+    if len(config.unet_checkpoint) > 0:
+        unet, unet_params = FlaxUNet2DConditionModel.from_pretrained(
+                config.unet_checkpoint,
+                split_head_dim=config.split_head_dim,
+                norm_num_groups=config.norm_num_groups,
+                attention_kernel=config.attention,
+                flash_block_sizes=flash_block_sizes,
+                mesh=mesh
+            )
+        params["unet"] = unet_params
+        pipeline.unet = unet
     params = jax.tree_util.tree_map(lambda x: x.astype(weight_dtype), params)
 
     noise_scheduler, noise_scheduler_state = FlaxDDPMScheduler.from_pretrained(config.pretrained_model_name_or_path,
@@ -353,12 +366,13 @@ def train(config):
     mllog_utils.train_init_stop(config)
     mllog_utils.train_run_start(config)
     mllog_utils.train_step_start(config, start_step)
-    for step in np.arange(start_step, config.max_train_steps):
+    for step in np.arange(start_step, config.max_train_steps+1):
         example_batch = load_next_batch(data_iterator, example_batch, config)
         unet_state, train_metric, train_rngs = p_train_step(unet_state,
                                                             vae_state,
                                                             example_batch,
                                                             train_rngs)
+        samples_count = total_train_batch_size * (step + 1)
         new_time = datetime.datetime.now()
         record_scalar_metrics(train_metric, new_time - last_step_completion, per_device_tflops, learning_rate_scheduler(step))
         if config.write_metrics:
@@ -372,9 +386,16 @@ def train(config):
             max_utils.deactivate_profiler(config)
 
         mllog_utils.maybe_train_step_log(config, start_step, step, train_metric)
+        if step != 0 and config.checkpoint_every != -1 and samples_count % config.checkpoint_every == 0:
+            checkpoint_name = f"UNET-samples-{samples_count}"
+            save_checkpoint(pipeline.unet.save_pretrained,
+                            get_params_to_save(unet_state.params),
+                            config,
+                            os.path.join(config.checkpoint_dir, checkpoint_name))
 
-    # Create the pipeline using using the trained modules and save it.
+    # save the last checkpoint
     if jax.process_index() == 0:
+        checkpoint_name = "final"
         safety_checker = FlaxStableDiffusionSafetyChecker.from_pretrained(
             "CompVis/stable-diffusion-safety-checker", from_pt=True
         )
@@ -401,15 +422,14 @@ def train(config):
             feature_extractor=CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32"),
         )
 
-        pipeline.save_pretrained(
-            config.output_dir,
-            params={
-                "text_encoder": get_params_to_save(params["text_encoder"]),
-                "vae": get_params_to_save(params["vae"]),
-                "unet": get_params_to_save(unet_state.params),
-                "safety_checker": safety_checker.params,
-            },
-        )
+        params = {
+            "text_encoder": get_params_to_save(params["text_encoder"]),
+            "vae": get_params_to_save(params["vae"]),
+            "unet": get_params_to_save(unet_state.params),
+            "safety_checker": safety_checker.params,
+        }
+        save_checkpoint(pipeline.save_pretrained, params, config, os.path.join(config.checkpoint_dir, checkpoint_name))
+
     max_utils.close_summary_writer(writer)
 
 def main(argv: Sequence[str]) -> None:

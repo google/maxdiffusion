@@ -34,7 +34,8 @@ from maxdiffusion import pyconfig
 from absl import app
 from maxdiffusion import (
   FlaxStableDiffusionPipeline,
-  FlaxDDIMScheduler
+  FlaxDDIMScheduler,
+  FlaxUNet2DConditionModel
 )
 
 from maxdiffusion.maxdiffusion_utils import rescale_noise_cfg
@@ -146,6 +147,17 @@ def run(config):
         flash_block_sizes=flash_block_sizes,
         mesh=mesh
     )
+    if len(config.unet_checkpoint) > 0:
+        unet, unet_params = FlaxUNet2DConditionModel.from_pretrained(
+                config.unet_checkpoint,
+                split_head_dim=config.split_head_dim,
+                norm_num_groups=config.norm_num_groups,
+                attention_kernel=config.attention,
+                flash_block_sizes=flash_block_sizes,
+                mesh=mesh
+            )
+        params["unet"] = unet_params
+        pipeline.unet = unet
     scheduler, scheduler_state = FlaxDDIMScheduler.from_pretrained(
         config.pretrained_model_name_or_path, revision=config.revision, subfolder="scheduler", dtype=jnp.float32
     )
