@@ -3,6 +3,10 @@ ARG JAX_SS_BASEIMAGE
 # JAX Stable Stack Base Image
 From $JAX_SS_BASEIMAGE
 
+ARG COMMIT_HASH
+
+ENV COMMIT_HASH=$COMMIT_HASH
+
 RUN mkdir -p /deps
 
 # Set the working directory in the container
@@ -17,3 +21,6 @@ RUN pip install -r /deps/requirements.txt
 
 # Install MaxDiffusion
 RUN pip install .
+
+# Run the script  available in JAX-SS base image to generate the manifest file
+RUN bash /generate_manifest.sh PREFIX=maxdiffusion COMMIT_HASH=$COMMIT_HASH
