@@ -38,6 +38,7 @@ import functools
 from tqdm import tqdm
 import tensorflow as tf
 from PIL import Image
+cc.initialize_cache(os.path.expanduser("~/jax_cache"))
 
 def load_captions(file_path):
     with tf.io.gfile.GFile(file_path, 'r') as f:
