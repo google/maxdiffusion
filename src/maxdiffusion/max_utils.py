@@ -250,23 +250,48 @@ def create_device_mesh(config, devices=None, logging=True):
   if devices is None:
     devices = jax.devices()
   num_devices = len(devices)
+  multi_slice_env = hasattr(jax.devices()[0], "slice_index")
   try:
     num_slices = 1 + max([d.slice_index for d in devices])
   except:
     num_slices = 1
-  num_devices_per_slice = num_devices//num_slices
-  max_logging.log(f"Devices: {devices} (num_devices: {num_devices})")
-  assert len(devices) > 1, "You must have at least two devices"
 
-
+  dcn_parallelism = [config.dcn_data_parallelism, config.dcn_fsdp_parallelism, config.dcn_tensor_parallelism]
+  
   ici_parallelism = [config.ici_data_parallelism, config.ici_fsdp_parallelism, config.ici_tensor_parallelism]
 
+  num_devices_per_slice = num_devices//num_slices
+  max_logging.log(f"Devices: {devices} (num_devices: {num_devices}), slices: {num_slices}")
+  assert len(devices) > 1, "You must have at least two devices"
+  
   # Find possible unspecified parallelisms
+  dcn_parallelism = fill_unspecified_mesh_axes(
+        dcn_parallelism, num_slices, "DCN"
+    )
   ici_parallelism = fill_unspecified_mesh_axes(ici_parallelism, num_devices_per_slice, 'ICI')
-  mesh = mesh_utils.create_device_mesh(ici_parallelism, devices)
+ 
+  # Assert that we have correct inputs of sharding that fit the number of chips
+  assert (
+      np.prod(dcn_parallelism) * np.prod(ici_parallelism) == num_devices
+  ), f"Number of devices {num_devices} \
+        does not match the product of the parallelism {np.prod(dcn_parallelism) * np.prod(ici_parallelism)}"
+
+  if multi_slice_env:
+    assert config.dcn_data_parallelism == 1 + max(
+        x.slice_index for x in jax.devices()
+    ), f"Number of slices given {config.dcn_data_parallelism} \
+          does not match the number fetched from jax devices {jax.devices()[0]}"
+
+    mesh = mesh_utils.create_hybrid_device_mesh(
+        ici_parallelism,
+        dcn_parallelism,
+        devices,
+    )
+  else:
+    mesh = mesh_utils.create_device_mesh(ici_parallelism, devices)
 
   if logging:
-    max_logging.log(f"Decided on mesh: {mesh}")
+    max_logging.log(f"Decided on mesh: {mesh},  shape {mesh.shape}")
 
   return mesh
 
